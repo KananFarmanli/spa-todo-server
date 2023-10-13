@@ -54,6 +54,7 @@ const createTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 name: name,
                 columnId: columnId,
                 status: Status.QUEUE,
+                subTasks: { create: [] },
             },
         });
         res.status(201).json({ data: newTask });
