@@ -20,11 +20,15 @@ const allowToUpate = ['name', 'description', 'priority'];
 
 type PostCreateBody = Prisma.Args<typeof prisma.task, 'create'>['data'];
 
+
+//!GET TASK
 export const getTasks = async (req: Request, res: Response) => {
   const allTasks = await prisma.task.findMany();
   res.status(200).json({ data: allTasks });
 };
 
+
+//!CREATE TASK
 export const createTask = async (req: Request, res: Response) => {
   const { name, columnId } = (req.body as PostCreateBody) ?? {};
 
@@ -60,6 +64,8 @@ export const createTask = async (req: Request, res: Response) => {
     return res.status(500).json({ message: 'Something went wrong' });
   }
 };
+
+//! CREATE
 
 export const createSubTask = async (req: Request, res: Response) => {
   const { name } = (req.body as PostCreateBody) ?? {};
@@ -102,36 +108,7 @@ export const createSubTask = async (req: Request, res: Response) => {
   }
 };
 
-export const updateTask = async (req: Request, res: Response) => {
-  const body = req.body;
-  const param = req.params as { id: string };
 
-  const newBody = allowToUpate.reduce<any>((obj, current) => {
-    if (body[current]) {
-      return { ...obj, [current]: body[current] };
-    } else {
-      return obj;
-    }
-  }, {});
-
-  if (!param || !newBody)
-    return res.status(400).json({ message: 'Wrong input' });
-
-  if (isNaN(Number(param.id))) return res.status(400);
-
-  try {
-    const updatedTask = await prisma.task.update({
-      where: {
-        id: +param.id,
-      },
-      data: newBody,
-    });
-
-    res.status(201).json({ data: updatedTask });
-  } catch (error) {
-    return res.status(500).json({ message: 'Something went wrong' });
-  }
-};
 
 type ReorderedItems = {
   id: number;
@@ -181,6 +158,11 @@ async function reorderOldColumn(oldColumnId: number) {
     });
   }
 }
+
+
+
+//! MOVE TASK IN COLUMM OR BETWEEN
+
 export const moveTaskInColumn = async (req: Request, res: Response) => {
   const { oldColumnId, newColumnId, tasks } = (req.body as MoveColumn) ?? {};
 
@@ -222,7 +204,7 @@ export const moveTaskInColumn = async (req: Request, res: Response) => {
       });
 
       if (shouldUpdateSubtasksStatus) {
-        // Update the status of subtasks to 'Done'
+        
         const subtaskIds = taskToUpdate.subTasks.map((subtask) => subtask.id);
         await prisma.task.updateMany({
           where: {
@@ -249,7 +231,7 @@ export const moveTaskInColumn = async (req: Request, res: Response) => {
 };
 
 
-
+//! REMOVE
 
 export const removeTask = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -309,4 +291,85 @@ export const updateStatus = async (req: Request, res: Response) => {
   }
 };
 
+
+//!obnovlenie statusa subtaskov
+
+export const updateSubtaskStatus = async (req: Request, res: Response) => {
+  const subtaskId = +req.params.id;
+  const { newStatus, parentId } = req.body;
+
+  if (isNaN(subtaskId) || !newStatus || typeof parentId !== 'number') {
+    return res.status(400).json({ message: 'Invalid subtask ID, newStatus, or parentId' });
+  }
+
+
+  if (![Status.UNDONE, Status.DONE].includes(newStatus)) {
+    return res.status(400).json({ message: 'Invalid newStatus value. It must be "Undone" or "Done".' });
+  }
+
+  try {
+    const subtask = await prisma.task.findUnique({
+      where: { id: subtaskId },
+    });
+
+    if (!subtask) {
+      return res.status(404).json({ message: 'Subtask not found' });
+    }
+
+    if (parentId !== null) {
+ 
+      const updatedSubtask = await prisma.task.update({
+        where: { id: subtaskId },
+        data: { status: newStatus },
+      });
+
+      if (newStatus === Status.UNDONE) {
+
+        const parentTask = await prisma.task.findUnique({
+          where: { id: parentId },
+        });
+
+        if (parentTask && parentTask.status === Status.DONE) {
+
+          const developmentColumn = await prisma.column.findFirst({
+            where: { name: Status.DEVELOPMENT },
+          });
+
+          if (developmentColumn) {
+
+
+            const aggregate = await prisma.task.aggregate({
+              where: {
+                column: {
+                  id: developmentColumn.id
+                },
+              },
+              _max: {
+                position: true,
+              },
+            });
+        
+            const max = aggregate._max.position;
+        
+            await prisma.task.update({
+              where: {
+                id: parentId
+              },
+              data: {
+                columnId: developmentColumn.id,
+                position: typeof max !== 'number' ? 1 : max + 1,
+              },
+            });
+          }
+        }
+      }
+
+      res.status(200).json({ data: updatedSubtask });
+    } else {
+      res.status(400).json({ message: 'Parent ID is null. Subtasks should have a parent task.' });
+    }
+  } catch (error) {
+    return res.status(500).json({ message: 'Something went wrong' });
+  }
+};
 

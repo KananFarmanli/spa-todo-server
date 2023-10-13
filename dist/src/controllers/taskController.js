@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateStatus = exports.removeTask = exports.moveTaskInColumn = exports.updateTask = exports.createSubTask = exports.createTask = exports.getTasks = void 0;
+exports.updateSubtaskStatus = exports.updateStatus = exports.removeTask = exports.moveTaskInColumn = exports.createSubTask = exports.createTask = exports.getTasks = void 0;
 const db_1 = require("../db");
 var Columns;
 (function (Columns) {
@@ -25,11 +25,13 @@ var Status;
     Status["UNDONE"] = "Undone";
 })(Status || (Status = {}));
 const allowToUpate = ['name', 'description', 'priority'];
+//!GET TASK
 const getTasks = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const allTasks = yield db_1.prisma.task.findMany();
     res.status(200).json({ data: allTasks });
 });
 exports.getTasks = getTasks;
+//!CREATE TASK
 const createTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const { name, columnId } = (_a = req.body) !== null && _a !== void 0 ? _a : {};
@@ -61,6 +63,7 @@ const createTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.createTask = createTask;
+//! CREATE
 const createSubTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _b;
     const { name } = (_b = req.body) !== null && _b !== void 0 ? _b : {};
@@ -98,35 +101,6 @@ const createSubTask = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.createSubTask = createSubTask;
-const updateTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const body = req.body;
-    const param = req.params;
-    const newBody = allowToUpate.reduce((obj, current) => {
-        if (body[current]) {
-            return Object.assign(Object.assign({}, obj), { [current]: body[current] });
-        }
-        else {
-            return obj;
-        }
-    }, {});
-    if (!param || !newBody)
-        return res.status(400).json({ message: 'Wrong input' });
-    if (isNaN(Number(param.id)))
-        return res.status(400);
-    try {
-        const updatedTask = yield db_1.prisma.task.update({
-            where: {
-                id: +param.id,
-            },
-            data: newBody,
-        });
-        res.status(201).json({ data: updatedTask });
-    }
-    catch (error) {
-        return res.status(500).json({ message: 'Something went wrong' });
-    }
-});
-exports.updateTask = updateTask;
 function reorder(tasks, columndId) {
     return __awaiter(this, void 0, void 0, function* () {
         const updates = tasks.map((task) => db_1.prisma.task.update({
@@ -162,6 +136,7 @@ function reorderOldColumn(oldColumnId) {
         }
     });
 }
+//! MOVE TASK IN COLUMM OR BETWEEN
 const moveTaskInColumn = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _c;
     const { oldColumnId, newColumnId, tasks } = (_c = req.body) !== null && _c !== void 0 ? _c : {};
@@ -197,7 +172,6 @@ const moveTaskInColumn = (req, res) => __awaiter(void 0, void 0, void 0, functio
                 data: updateData,
             });
             if (shouldUpdateSubtasksStatus) {
-                // Update the status of subtasks to 'Done'
                 const subtaskIds = taskToUpdate.subTasks.map((subtask) => subtask.id);
                 yield db_1.prisma.task.updateMany({
                     where: {
@@ -221,6 +195,7 @@ const moveTaskInColumn = (req, res) => __awaiter(void 0, void 0, void 0, functio
     }
 });
 exports.moveTaskInColumn = moveTaskInColumn;
+//! REMOVE
 const removeTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     if (isNaN(+id))
@@ -274,3 +249,68 @@ const updateStatus = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.updateStatus = updateStatus;
+//!obnovlenie statusa subtaskov
+const updateSubtaskStatus = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const subtaskId = +req.params.id;
+    const { newStatus, parentId } = req.body;
+    if (isNaN(subtaskId) || !newStatus || typeof parentId !== 'number') {
+        return res.status(400).json({ message: 'Invalid subtask ID, newStatus, or parentId' });
+    }
+    if (![Status.UNDONE, Status.DONE].includes(newStatus)) {
+        return res.status(400).json({ message: 'Invalid newStatus value. It must be "Undone" or "Done".' });
+    }
+    try {
+        const subtask = yield db_1.prisma.task.findUnique({
+            where: { id: subtaskId },
+        });
+        if (!subtask) {
+            return res.status(404).json({ message: 'Subtask not found' });
+        }
+        if (parentId !== null) {
+            const updatedSubtask = yield db_1.prisma.task.update({
+                where: { id: subtaskId },
+                data: { status: newStatus },
+            });
+            if (newStatus === Status.UNDONE) {
+                const parentTask = yield db_1.prisma.task.findUnique({
+                    where: { id: parentId },
+                });
+                if (parentTask && parentTask.status === Status.DONE) {
+                    const developmentColumn = yield db_1.prisma.column.findFirst({
+                        where: { name: Status.DEVELOPMENT },
+                    });
+                    if (developmentColumn) {
+                        const aggregate = yield db_1.prisma.task.aggregate({
+                            where: {
+                                column: {
+                                    id: developmentColumn.id
+                                },
+                            },
+                            _max: {
+                                position: true,
+                            },
+                        });
+                        const max = aggregate._max.position;
+                        yield db_1.prisma.task.update({
+                            where: {
+                                id: parentId
+                            },
+                            data: {
+                                columnId: developmentColumn.id,
+                                position: typeof max !== 'number' ? 1 : max + 1,
+                            },
+                        });
+                    }
+                }
+            }
+            res.status(200).json({ data: updatedSubtask });
+        }
+        else {
+            res.status(400).json({ message: 'Parent ID is null. Subtasks should have a parent task.' });
+        }
+    }
+    catch (error) {
+        return res.status(500).json({ message: 'Something went wrong' });
+    }
+});
+exports.updateSubtaskStatus = updateSubtaskStatus;
