@@ -1,0 +1,94 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://postgres:Djhz9Az7ZqTt7fc0pEL3@containers-us-west-48.railway.app:7679/railway"
+}
+
+model Board {
+  id        Int      @id @default(autoincrement())
+  name      String
+  columns   Column[]
+  createdAt DateTime @default(now())
+}
+
+enum Columns {
+  QUEUE
+  DEVELOPMENT
+  DONE
+}
+
+model Column {
+  id        Int      @id @default(autoincrement())
+  name      String
+  boardId   Int
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  task      Task[]
+}
+
+enum Status {
+  QUEUE
+  DEVELOPMENT
+  DONE
+}
+
+model Task {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String?
+  priority    Priority  @default(LOW)
+  columnId    Int?
+  column      Column?   @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  files       File[]
+  comments    Comment[]
+  createdAt   DateTime  @default(now())
+
+  status      String
+
+  position Int @default(autoincrement()) // Position in column
+
+  subTasks Task[] @relation("TaskSubtask")
+  parent   Task?  @relation("TaskSubtask", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId Int?
+}
+
+
+
+
+//photki => imgPath
+//textEditor =>
+
+
+
+enum Priority {
+  LOW
+  HIGH
+}
+
+//Temp
+model File {
+  id        Int      @id @default(autoincrement())
+  name      String
+  taskId    Int
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  createdAt DateTime @default(now())
+}
+
+model Comment {
+  id      Int    @id @default(autoincrement())
+  content String
+  taskId  Int
+  task    Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  comments Comment[] @relation("CommentComment")
+  comment  Comment?  @relation("CommentComment", fields: [parentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  parentId Int?
+
+  createdAt DateTime @default(now())
+}
