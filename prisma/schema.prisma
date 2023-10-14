@@ -7,7 +7,8 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://postgres:OXQ9doxPlHDrZFkuUUpe@containers-us-west-206.railway.app:7841/railway"
+  url      = "postgresql://postgres:ieNjHP7ouF2E4YzycVe5@containers-us-west-44.railway.app:6353/railway"
+  
 }
 
 model Board {
