@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://postgres:6NY9ehukxo51KZf7rAcY@containers-us-west-101.railway.app:6826/railway"
+  url      = "postgresql://postgres:bcafvqlYDgFuho1fL62I@containers-us-west-100.railway.app:5493/railway"
   
 }
 
