@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateSubtaskStatus = exports.updateStatus = exports.removeTask = exports.moveTaskInColumn = exports.createSubTask = exports.createTask = exports.getTasks = void 0;
+exports.getTaskById = exports.updateSubtaskStatus = exports.updateStatus = exports.removeTask = exports.moveTaskInColumn = exports.createSubTask = exports.createTask = exports.getTasks = void 0;
 const db_1 = require("../db");
 var Columns;
 (function (Columns) {
@@ -315,3 +315,30 @@ const updateSubtaskStatus = (req, res) => __awaiter(void 0, void 0, void 0, func
     }
 });
 exports.updateSubtaskStatus = updateSubtaskStatus;
+const getTaskById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    if (!id || isNaN(+id)) {
+        return res.status(400).json({ message: 'Invalid task ID' });
+    }
+    try {
+        const taskId = parseInt(id);
+        const task = yield db_1.prisma.task.findUnique({
+            where: { id: taskId },
+            include: {
+                subTasks: {
+                    include: {
+                        subTasks: true,
+                    },
+                },
+            },
+        });
+        if (!task) {
+            return res.status(404).json({ message: 'Task not found' });
+        }
+        res.status(200).json({ data: task });
+    }
+    catch (error) {
+        return res.status(500).json({ message: 'Something went wrong' });
+    }
+});
+exports.getTaskById = getTaskById;

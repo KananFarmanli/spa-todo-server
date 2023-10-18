@@ -14,21 +14,25 @@ enum Status {
   DONE = 'Done',
   UNDONE = 'Undone'
 }
+type ReorderedItems = {
+  id: number;
+  position: number;
+};
 
+type MoveColumn = {
+  oldColumnId: number;
+  newColumnId: number;
+  tasks: ReorderedItems[];
+};
 
 const allowToUpate = ['name', 'description', 'priority'];
-
 type PostCreateBody = Prisma.Args<typeof prisma.task, 'create'>['data'];
 
-
-//!GET TASK
 export const getTasks = async (req: Request, res: Response) => {
   const allTasks = await prisma.task.findMany();
   res.status(200).json({ data: allTasks });
 };
 
-
-//!CREATE TASK
 export const createTask = async (req: Request, res: Response) => {
   const { name, columnId } = (req.body as PostCreateBody) ?? {};
 
@@ -48,7 +52,7 @@ export const createTask = async (req: Request, res: Response) => {
     if (!column)
       return res
         .status(404)
-        .json({ message: 'You can create task only in QUEUE' });
+        .json({ message: 'You can create a task only in QUEUE' });
 
     const newTask = await prisma.task.create({
       data: {
@@ -56,7 +60,10 @@ export const createTask = async (req: Request, res: Response) => {
         columnId: columnId,
         status: Status.QUEUE,
         subTasks: { create: [] } as Prisma.TaskCreateNestedManyWithoutParentInput,
-    
+      },
+      include: {
+        subTasks: true, 
+        comments: true, 
       },
     });
 
@@ -65,8 +72,6 @@ export const createTask = async (req: Request, res: Response) => {
     return res.status(500).json({ message: 'Something went wrong' });
   }
 };
-
-//! CREATE
 
 export const createSubTask = async (req: Request, res: Response) => {
   const { name } = (req.body as PostCreateBody) ?? {};
@@ -111,17 +116,6 @@ export const createSubTask = async (req: Request, res: Response) => {
 
 
 
-type ReorderedItems = {
-  id: number;
-  position: number;
-};
-
-type MoveColumn = {
-  oldColumnId: number;
-  newColumnId: number;
-  tasks: ReorderedItems[];
-};
-
 async function reorder(tasks: ReorderedItems[], columndId: number) {
   const updates = tasks.map((task) =>
     prisma.task.update({
@@ -159,10 +153,6 @@ async function reorderOldColumn(oldColumnId: number) {
     });
   }
 }
-
-
-
-//! MOVE TASK IN COLUMM OR BETWEEN
 
 export const moveTaskInColumn = async (req: Request, res: Response) => {
   const { oldColumnId, newColumnId, tasks } = (req.body as MoveColumn) ?? {};
@@ -231,9 +221,6 @@ export const moveTaskInColumn = async (req: Request, res: Response) => {
   }
 };
 
-
-//! REMOVE
-
 export const removeTask = async (req: Request, res: Response) => {
   const { id } = req.params;
 
@@ -254,47 +241,6 @@ export const removeTask = async (req: Request, res: Response) => {
   }
 };
 
-export const updateStatus = async (req: Request, res: Response) => {
-  const { id } = req.params; // task id
-  const body = (req.body as { columnId: number }) ?? {}; // column id
-
-  if (isNaN(+id))
-    return res.status(404).json({ message: 'Missing some fields' });
-
-  try {
-    const aggregate = await prisma.task.aggregate({
-      where: {
-        column: {
-          id: body.columnId,
-        },
-      },
-      _max: {
-        position: true,
-      },
-    });
-
-    const max = aggregate._max.position;
-
-    const updatedTask = await prisma.task.update({
-      where: {
-        id: parseInt(id),
-      },
-      data: {
-        columnId: body.columnId,
-        position: typeof max !== 'number' ? 1 : max + 1,
-      },
-    });
-
-    res.status(204).json({ data: updatedTask });
-  } catch (error) {
-    console.log(error);
-    return res.status(500).json({ message: 'Something went wrong' });
-  }
-};
-
-
-//!obnovlenie statusa subtaskov
-
 export const updateSubtaskStatus = async (req: Request, res: Response) => {
   const subtaskId = +req.params.id;
   const { newStatus, parentId } = req.body;
@@ -302,7 +248,6 @@ export const updateSubtaskStatus = async (req: Request, res: Response) => {
   if (isNaN(subtaskId) || !newStatus || typeof parentId !== 'number') {
     return res.status(400).json({ message: 'Invalid subtask ID, newStatus, or parentId' });
   }
-
 
   if (![Status.UNDONE, Status.DONE].includes(newStatus)) {
     return res.status(400).json({ message: 'Invalid newStatus value. It must be "Undone" or "Done".' });
@@ -318,27 +263,34 @@ export const updateSubtaskStatus = async (req: Request, res: Response) => {
     }
 
     if (parentId !== null) {
- 
       const updatedSubtask = await prisma.task.update({
         where: { id: subtaskId },
         data: { status: newStatus },
       });
 
-      if (newStatus === Status.UNDONE) {
 
-        const parentTask = await prisma.task.findUnique({
-          where: { id: parentId },
-        });
+      const parentTask = await prisma.task.findUnique({
+        where: { id: parentId },
+        include: {
+          subTasks: {
+            where: {
+              NOT: { status: Status.DONE }
+            }
+          }
+        },
+      });
 
-        if (parentTask && parentTask.status === Status.DONE) {
+      if (parentTask && parentTask.subTasks.length > 0) {
 
+        if (parentTask.status === Status.DONE) {
+          let idColumn = parentTask.columnId!-1
+          console.log(idColumn,"ttttuuuuuuututututtu")
           const developmentColumn = await prisma.column.findFirst({
-            where: { name: Status.DEVELOPMENT },
+            where: { name: Status.DEVELOPMENT,
+            id:idColumn},
           });
 
           if (developmentColumn) {
-
-
             const aggregate = await prisma.task.aggregate({
               where: {
                 column: {
@@ -349,9 +301,8 @@ export const updateSubtaskStatus = async (req: Request, res: Response) => {
                 position: true,
               },
             });
-        
+
             const max = aggregate._max.position;
-        
             await prisma.task.update({
               where: {
                 id: parentId
@@ -359,6 +310,7 @@ export const updateSubtaskStatus = async (req: Request, res: Response) => {
               data: {
                 columnId: developmentColumn.id,
                 position: typeof max !== 'number' ? 1 : max + 1,
+                status: Status.DEVELOPMENT,
               },
             });
           }
@@ -373,4 +325,145 @@ export const updateSubtaskStatus = async (req: Request, res: Response) => {
     return res.status(500).json({ message: 'Something went wrong' });
   }
 };
+export const updateTaskStatus = async (req: Request, res: Response) => {
+  const taskId = +req.params.id;
+  const { newStatus } = req.body;
 
+  if (isNaN(taskId) || !newStatus) {
+    return res.status(400).json({ message: 'Invalid Task ID or newStatus'});
+  }
+
+  if (![Status.QUEUE, Status.DEVELOPMENT, Status.DONE].includes(newStatus)) {
+    return res.status(400).json({ message: 'Invalid newStatus value. It must be "Queue", "Development" or "Done".' });
+  }
+
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: {
+        column: {
+          include: {
+            board: true,
+          },
+        },
+        subTasks: true, 
+      },
+    });
+
+    if (!task) return res.status(404).json({ message: 'Task not found' });
+    if (task.parentId != null) return res.status(400).json({ message: 'Its not allowed to update the status of SubTask via this API' });
+    if (task.status.toLowerCase() === newStatus.toLowerCase()) return res.status(200).json({ message: 'Status of the task is the same' });
+
+    const newColumn = await prisma.column.findFirst({
+      where: {
+        name: newStatus,
+        boardId: task.column?.board.id, 
+      },
+    });
+
+    if (!newColumn) return res.status(404).json({ message: `Column for status ${newStatus} not found in the same board` });
+
+    const aggregate = await prisma.task.aggregate({
+      where: {
+        column: {
+          id: newColumn.id,
+        },
+      },
+      _max: {
+        position: true,
+      },
+    });
+
+    const max = aggregate._max.position;
+    const updatedTask = await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        columnId: newColumn.id,
+        position: typeof max !== 'number' ? 1 : max + 1,
+        status: newStatus,
+      },
+    });
+
+
+    if (newStatus.toLowerCase() === Status.DONE.toLowerCase()) {
+   
+      const subtaskIds = task.subTasks.map((subtask) => subtask.id);
+      await prisma.task.updateMany({
+        where: {
+          id: {
+            in: subtaskIds,
+          },
+        },
+        data: {
+          status: Status.DONE,
+        },
+      });
+    }
+
+    res.status(200).json({ data: updatedTask });
+
+  } catch (error) {
+    return res.status(500).json({ message: 'Something went wrong' });
+  }
+};
+
+export const updateTaskSubtask = async (req: Request, res: Response) => {
+  const body = req.body;
+  const param = req.params as { id: string };
+
+  const newBody = allowToUpate.reduce<any>((obj, current) => {
+    if (body[current]) {
+      return { ...obj, [current]: body[current] };
+    } else {
+      return obj;
+    }
+  }, {});
+
+  if (!param || !newBody)
+    return res.status(400).json({ message: 'Wrong input' });
+
+  if (isNaN(Number(param.id))) return res.status(400);
+
+  try {
+    const updatedTask = await prisma.task.update({
+      where: {
+        id: +param.id,
+      },
+      data: newBody,
+    });
+
+    res.status(201).json({ data: updatedTask });
+  } catch (error) {
+    return res.status(500).json({ message: 'Something went wrong' });
+  }
+};
+
+export const getTaskById = async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  if (!id || isNaN(+id)) {
+    return res.status(400).json({ message: 'Invalid task ID' });
+  }
+
+  try {
+    const taskId = parseInt(id);
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: {
+        subTasks: {
+          include: {
+            subTasks: true, 
+          },
+        },
+      },
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    res.status(200).json({ data: task });
+  } catch (error) {
+    return res.status(500).json({ message: 'Something went wrong' });
+  }
+};
