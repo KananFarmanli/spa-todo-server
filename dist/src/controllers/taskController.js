@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getTaskById = exports.updateSubtaskStatus = exports.updateStatus = exports.removeTask = exports.moveTaskInColumn = exports.createSubTask = exports.createTask = exports.getTasks = void 0;
+exports.getTaskById = exports.updateTaskSubtask = exports.updateTaskStatus = exports.updateSubtaskStatus = exports.removeTask = exports.moveTaskInColumn = exports.createSubTask = exports.createTask = exports.getTasks = void 0;
 const db_1 = require("../db");
 var Columns;
 (function (Columns) {
@@ -25,13 +25,11 @@ var Status;
     Status["UNDONE"] = "Undone";
 })(Status || (Status = {}));
 const allowToUpate = ['name', 'description', 'priority'];
-//!GET TASK
 const getTasks = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const allTasks = yield db_1.prisma.task.findMany();
     res.status(200).json({ data: allTasks });
 });
 exports.getTasks = getTasks;
-//!CREATE TASK
 const createTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const { name, columnId } = (_a = req.body) !== null && _a !== void 0 ? _a : {};
@@ -48,13 +46,16 @@ const createTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         if (!column)
             return res
                 .status(404)
-                .json({ message: 'You can create task only in QUEUE' });
+                .json({ message: 'You can create a task only in QUEUE' });
         const newTask = yield db_1.prisma.task.create({
             data: {
                 name: name,
                 columnId: columnId,
                 status: Status.QUEUE,
-                subTasks: { create: [] },
+            },
+            include: {
+                subTasks: true,
+                comments: true,
             },
         });
         res.status(201).json({ data: newTask });
@@ -64,7 +65,6 @@ const createTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.createTask = createTask;
-//! CREATE
 const createSubTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _b;
     const { name } = (_b = req.body) !== null && _b !== void 0 ? _b : {};
@@ -86,9 +86,6 @@ const createSubTask = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 name,
                 parentId: +parentId,
                 status: Status.UNDONE
-            },
-            include: {
-                subTasks: true,
             },
         });
         res.status(201).json({
@@ -137,7 +134,6 @@ function reorderOldColumn(oldColumnId) {
         }
     });
 }
-//! MOVE TASK IN COLUMM OR BETWEEN
 const moveTaskInColumn = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _c;
     const { oldColumnId, newColumnId, tasks } = (_c = req.body) !== null && _c !== void 0 ? _c : {};
@@ -196,7 +192,6 @@ const moveTaskInColumn = (req, res) => __awaiter(void 0, void 0, void 0, functio
     }
 });
 exports.moveTaskInColumn = moveTaskInColumn;
-//! REMOVE
 const removeTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     if (isNaN(+id))
@@ -215,42 +210,6 @@ const removeTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.removeTask = removeTask;
-const updateStatus = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _d;
-    const { id } = req.params; // task id
-    const body = (_d = req.body) !== null && _d !== void 0 ? _d : {}; // column id
-    if (isNaN(+id))
-        return res.status(404).json({ message: 'Missing some fields' });
-    try {
-        const aggregate = yield db_1.prisma.task.aggregate({
-            where: {
-                column: {
-                    id: body.columnId,
-                },
-            },
-            _max: {
-                position: true,
-            },
-        });
-        const max = aggregate._max.position;
-        const updatedTask = yield db_1.prisma.task.update({
-            where: {
-                id: parseInt(id),
-            },
-            data: {
-                columnId: body.columnId,
-                position: typeof max !== 'number' ? 1 : max + 1,
-            },
-        });
-        res.status(204).json({ data: updatedTask });
-    }
-    catch (error) {
-        console.log(error);
-        return res.status(500).json({ message: 'Something went wrong' });
-    }
-});
-exports.updateStatus = updateStatus;
-//!obnovlenie statusa subtaskov
 const updateSubtaskStatus = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const subtaskId = +req.params.id;
     const { newStatus, parentId } = req.body;
@@ -272,13 +231,23 @@ const updateSubtaskStatus = (req, res) => __awaiter(void 0, void 0, void 0, func
                 where: { id: subtaskId },
                 data: { status: newStatus },
             });
-            if (newStatus === Status.UNDONE) {
-                const parentTask = yield db_1.prisma.task.findUnique({
-                    where: { id: parentId },
-                });
-                if (parentTask && parentTask.status === Status.DONE) {
+            const parentTask = yield db_1.prisma.task.findUnique({
+                where: { id: parentId },
+                include: {
+                    subTasks: {
+                        where: {
+                            NOT: { status: Status.DONE }
+                        }
+                    }
+                },
+            });
+            if (parentTask && parentTask.subTasks.length > 0) {
+                if (parentTask.status === Status.DONE) {
+                    let idColumn = parentTask.columnId - 1;
+                    console.log(idColumn, "ttttuuuuuuututututtu");
                     const developmentColumn = yield db_1.prisma.column.findFirst({
-                        where: { name: Status.DEVELOPMENT },
+                        where: { name: Status.DEVELOPMENT,
+                            id: idColumn },
                     });
                     if (developmentColumn) {
                         const aggregate = yield db_1.prisma.task.aggregate({
@@ -299,6 +268,7 @@ const updateSubtaskStatus = (req, res) => __awaiter(void 0, void 0, void 0, func
                             data: {
                                 columnId: developmentColumn.id,
                                 position: typeof max !== 'number' ? 1 : max + 1,
+                                status: Status.DEVELOPMENT,
                             },
                         });
                     }
@@ -315,6 +285,110 @@ const updateSubtaskStatus = (req, res) => __awaiter(void 0, void 0, void 0, func
     }
 });
 exports.updateSubtaskStatus = updateSubtaskStatus;
+const updateTaskStatus = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _d;
+    const taskId = +req.params.id;
+    const { newStatus } = req.body;
+    if (isNaN(taskId) || !newStatus) {
+        return res.status(400).json({ message: 'Invalid Task ID or newStatus' });
+    }
+    if (![Status.QUEUE, Status.DEVELOPMENT, Status.DONE].includes(newStatus)) {
+        return res.status(400).json({ message: 'Invalid newStatus value. It must be "Queue", "Development" or "Done".' });
+    }
+    try {
+        const task = yield db_1.prisma.task.findUnique({
+            where: { id: taskId },
+            include: {
+                column: {
+                    include: {
+                        board: true,
+                    },
+                },
+                subTasks: true,
+            },
+        });
+        if (!task)
+            return res.status(404).json({ message: 'Task not found' });
+        if (task.parentId != null)
+            return res.status(400).json({ message: 'Its not allowed to update the status of SubTask via this API' });
+        if (task.status.toLowerCase() === newStatus.toLowerCase())
+            return res.status(200).json({ message: 'Status of the task is the same' });
+        const newColumn = yield db_1.prisma.column.findFirst({
+            where: {
+                name: newStatus,
+                boardId: (_d = task.column) === null || _d === void 0 ? void 0 : _d.board.id,
+            },
+        });
+        if (!newColumn)
+            return res.status(404).json({ message: `Column for status ${newStatus} not found in the same board` });
+        const aggregate = yield db_1.prisma.task.aggregate({
+            where: {
+                column: {
+                    id: newColumn.id,
+                },
+            },
+            _max: {
+                position: true,
+            },
+        });
+        const max = aggregate._max.position;
+        const updatedTask = yield db_1.prisma.task.update({
+            where: { id: taskId },
+            data: {
+                columnId: newColumn.id,
+                position: typeof max !== 'number' ? 1 : max + 1,
+                status: newStatus,
+            },
+        });
+        if (newStatus.toLowerCase() === Status.DONE.toLowerCase()) {
+            const subtaskIds = task.subTasks.map((subtask) => subtask.id);
+            yield db_1.prisma.task.updateMany({
+                where: {
+                    id: {
+                        in: subtaskIds,
+                    },
+                },
+                data: {
+                    status: Status.DONE,
+                },
+            });
+        }
+        res.status(200).json({ data: updatedTask });
+    }
+    catch (error) {
+        return res.status(500).json({ message: 'Something went wrong' });
+    }
+});
+exports.updateTaskStatus = updateTaskStatus;
+const updateTaskSubtask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const body = req.body;
+    const param = req.params;
+    const newBody = allowToUpate.reduce((obj, current) => {
+        if (body[current]) {
+            return Object.assign(Object.assign({}, obj), { [current]: body[current] });
+        }
+        else {
+            return obj;
+        }
+    }, {});
+    if (!param || !newBody)
+        return res.status(400).json({ message: 'Wrong input' });
+    if (isNaN(Number(param.id)))
+        return res.status(400);
+    try {
+        const updatedTask = yield db_1.prisma.task.update({
+            where: {
+                id: +param.id,
+            },
+            data: newBody,
+        });
+        res.status(201).json({ data: updatedTask });
+    }
+    catch (error) {
+        return res.status(500).json({ message: 'Something went wrong' });
+    }
+});
+exports.updateTaskSubtask = updateTaskSubtask;
 const getTaskById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     if (!id || isNaN(+id)) {
@@ -342,3 +416,4 @@ const getTaskById = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.getTaskById = getTaskById;
+//gtgddedeed

@@ -59,7 +59,6 @@ export const createTask = async (req: Request, res: Response) => {
         name: name,
         columnId: columnId,
         status: Status.QUEUE,
-        subTasks: { create: [] } as Prisma.TaskCreateNestedManyWithoutParentInput,
       },
       include: {
         subTasks: true, 
@@ -99,9 +98,7 @@ export const createSubTask = async (req: Request, res: Response) => {
         parentId: +parentId,
         status:Status.UNDONE
       },
-      include: {
-        subTasks: true,
-      },
+     
     });
 
     res.status(201).json({

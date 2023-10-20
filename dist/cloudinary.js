@@ -27,3 +27,4 @@ const upload = (file) => __awaiter(void 0, void 0, void 0, function* () {
     return image;
 });
 exports.upload = upload;
+//chekt it
